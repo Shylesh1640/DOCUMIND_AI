@@ -6,9 +6,11 @@ A production-ready Retrieval-Augmented Generation (RAG) AI assistant powered by 
 
 ---
 
-## 🚀 Live Demo
+## 🚀 Live Demo & Repository
 
-> Deployment URL will appear here after `vercel --prod`
+- **Live Production URL:** [https://documind-ai-indol.vercel.app](https://documind-ai-indol.vercel.app)
+- **Deployment Preview URL:** [https://documind-nk7whj4wy-shylesh-ss-projects.vercel.app](https://documind-nk7whj4wy-shylesh-ss-projects.vercel.app)
+- **GitHub Repository:** [https://github.com/Shylesh1640/DOCUMIND_AI](https://github.com/Shylesh1640/DOCUMIND_AI)
 
 ---
 
