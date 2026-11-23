@@ -1,11 +1,23 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Trash2, Bot, User, Loader2, AlertCircle, BookOpen, Cpu, Sparkles } from 'lucide-react';
+import {
+  Send,
+  Trash2,
+  Bot,
+  User,
+  Loader2,
+  AlertCircle,
+  BookOpen,
+  Cpu,
+  Sparkles,
+  Key,
+} from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { v4 as uuidv4 } from 'uuid';
 import { SourcePanel } from '@/components/chat/SourcePanel';
+import { SettingsModal, type ApiSettings } from '@/components/chat/SettingsModal';
 import { cn } from '@/lib/utils';
 import type { ChatMessage, Document } from '@/types';
 
@@ -32,8 +44,36 @@ export function ChatPanel({ documents }: ChatPanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [expandedSources, setExpandedSources] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState(AVAILABLE_MODELS[0]);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [apiSettings, setApiSettings] = useState<ApiSettings>({
+    groqApiKey: '',
+    openrouterApiKey: '',
+    chromaUrl: '',
+  });
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Load settings from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('documind_api_settings');
+      if (saved) {
+        setApiSettings(JSON.parse(saved));
+      }
+    } catch (e) {
+      console.warn('Failed to load settings:', e);
+    }
+  }, []);
+
+  const handleSaveSettings = (settings: ApiSettings) => {
+    setApiSettings(settings);
+    try {
+      localStorage.setItem('documind_api_settings', JSON.stringify(settings));
+    } catch (e) {
+      console.warn('Failed to save settings:', e);
+    }
+  };
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -45,6 +85,10 @@ export function ChatPanel({ documents }: ChatPanelProps) {
 
   const handleSend = useCallback(async () => {
     if (!input.trim() || isLoading) return;
+
+    // Check if user has key for selected provider
+    const isGroq = selectedModel.provider === 'groq';
+    const keyPresent = isGroq ? apiSettings.groqApiKey : apiSettings.openrouterApiKey;
 
     const userMessage: ChatMessage = {
       id: uuidv4(),
@@ -58,7 +102,6 @@ export function ChatPanel({ documents }: ChatPanelProps) {
     setIsLoading(true);
     setError(null);
 
-    // Build conversation history for context
     const history = messages
       .filter((m) => m.role === 'user' || m.role === 'assistant')
       .slice(-10)
@@ -67,12 +110,20 @@ export function ChatPanel({ documents }: ChatPanelProps) {
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiSettings.groqApiKey ? { 'x-groq-api-key': apiSettings.groqApiKey } : {}),
+          ...(apiSettings.openrouterApiKey ? { 'x-openrouter-api-key': apiSettings.openrouterApiKey } : {}),
+          ...(apiSettings.chromaUrl ? { 'x-chroma-url': apiSettings.chromaUrl } : {}),
+        },
         body: JSON.stringify({
           message: userMessage.content,
           conversation_history: history,
           provider: selectedModel.provider,
           model: selectedModel.id,
+          groqApiKey: apiSettings.groqApiKey,
+          openrouterApiKey: apiSettings.openrouterApiKey,
+          chromaUrl: apiSettings.chromaUrl,
         }),
       });
 
@@ -106,10 +157,15 @@ export function ChatPanel({ documents }: ChatPanelProps) {
         sources: [],
       };
       setMessages((prev) => [...prev, errorMessage]);
+
+      // If missing key, prompt open settings
+      if (errorMsg.includes('API Key') || !keyPresent) {
+        setIsSettingsOpen(true);
+      }
     } finally {
       setIsLoading(false);
     }
-  }, [input, isLoading, messages, selectedModel]);
+  }, [input, isLoading, messages, selectedModel, apiSettings]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -134,8 +190,10 @@ export function ChatPanel({ documents }: ChatPanelProps) {
     textarea.style.height = Math.min(textarea.scrollHeight, 160) + 'px';
   }, []);
 
+  const hasConfiguredKeys = Boolean(apiSettings.groqApiKey || apiSettings.openrouterApiKey);
+
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full relative">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3.5 border-b border-dark-800 bg-dark-900/60 backdrop-blur-sm">
         <div>
@@ -148,12 +206,28 @@ export function ChatPanel({ documents }: ChatPanelProps) {
           <p className="text-xs text-dark-400 mt-0.5">
             {documents.length > 0
               ? `${documents.filter((d) => d.status === 'indexed').length} document(s) indexed in ChromaDB`
-              : 'No documents uploaded — go to Documents tab to upload'}
+              : 'Knowledge base ready — switch to Documents tab to upload'}
           </p>
         </div>
 
         {/* Model Selector & Actions */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
+          {/* Settings / API Key Button */}
+          <button
+            onClick={() => setIsSettingsOpen(true)}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all duration-200',
+              hasConfiguredKeys
+                ? 'bg-dark-800 border-dark-700 text-dark-300 hover:text-white hover:border-dark-600'
+                : 'bg-navy-600/20 border-navy-500/50 text-navy-300 hover:bg-navy-600/30 animate-pulse'
+            )}
+            title="Configure API Keys & ChromaDB URL"
+          >
+            <Key className="w-3.5 h-3.5 text-navy-400" />
+            <span>{hasConfiguredKeys ? 'API Keys' : 'Set API Key'}</span>
+          </button>
+
+          {/* Model Selector */}
           <div className="flex items-center gap-1.5 bg-dark-800/90 border border-dark-700/80 rounded-lg px-2.5 py-1.5 text-xs text-dark-200">
             <Cpu className="w-3.5 h-3.5 text-navy-400" />
             <select
@@ -184,7 +258,7 @@ export function ChatPanel({ documents }: ChatPanelProps) {
           {messages.length > 0 && (
             <button
               onClick={handleClear}
-              className="flex items-center gap-1.5 text-xs text-dark-400 hover:text-red-400 transition-colors px-2 py-1.5 rounded-lg hover:bg-red-900/20"
+              className="flex items-center gap-1 text-xs text-dark-400 hover:text-red-400 transition-colors px-2 py-1.5 rounded-lg hover:bg-red-900/20"
             >
               <Trash2 className="w-3.5 h-3.5" />
               Clear
@@ -193,10 +267,32 @@ export function ChatPanel({ documents }: ChatPanelProps) {
         </div>
       </div>
 
+      {/* API Key prompt banner if no keys saved */}
+      {!hasConfiguredKeys && (
+        <div className="bg-navy-950/80 border-b border-navy-800/60 px-6 py-2.5 flex items-center justify-between text-xs text-dark-300">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-navy-400" />
+            <span>
+              To start asking questions, enter your free <strong>Groq API key</strong> (or OpenRouter key).
+            </span>
+          </div>
+          <button
+            onClick={() => setIsSettingsOpen(true)}
+            className="text-xs text-navy-300 hover:text-white underline font-medium"
+          >
+            Enter Key Now →
+          </button>
+        </div>
+      )}
+
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6 space-y-6">
         {messages.length === 0 ? (
-          <EmptyState hasDocuments={documents.some((d) => d.status === 'indexed')} />
+          <EmptyState
+            hasDocuments={documents.some((d) => d.status === 'indexed')}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            hasKeys={hasConfiguredKeys}
+          />
         ) : (
           messages.map((message) => (
             <MessageBubble
@@ -220,7 +316,7 @@ export function ChatPanel({ documents }: ChatPanelProps) {
                 <span className="w-2 h-2 bg-navy-400 rounded-full inline-block" />
               </div>
               <span className="text-dark-400 text-sm">
-                Searching ChromaDB & generating response with {selectedModel.provider === 'groq' ? 'Groq' : 'OpenRouter'}…
+                Searching documents & generating answer with {selectedModel.provider === 'groq' ? 'Groq' : 'OpenRouter'}…
               </span>
             </div>
           </div>
@@ -229,7 +325,17 @@ export function ChatPanel({ documents }: ChatPanelProps) {
         {error && (
           <div className="flex items-center gap-2 text-red-400 bg-red-900/20 border border-red-800/30 rounded-lg px-4 py-3 text-sm">
             <AlertCircle className="w-4 h-4 flex-shrink-0" />
-            {error}
+            <div className="flex-1">
+              {error}
+            </div>
+            {error.includes('API Key') && (
+              <button
+                onClick={() => setIsSettingsOpen(true)}
+                className="btn-primary text-xs px-3 py-1 flex-shrink-0"
+              >
+                Set Key
+              </button>
+            )}
           </div>
         )}
 
@@ -271,11 +377,19 @@ export function ChatPanel({ documents }: ChatPanelProps) {
             <span>Enter to send · Shift+Enter for new line</span>
             <span className="inline-flex items-center gap-1 text-dark-400">
               <Sparkles className="w-3 h-3 text-navy-400" />
-              Model: {selectedModel.name}
+              Active: {selectedModel.name}
             </span>
           </div>
         </div>
       </div>
+
+      {/* Settings Modal */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        onSave={handleSaveSettings}
+        initialSettings={apiSettings}
+      />
     </div>
   );
 }
@@ -357,13 +471,41 @@ function MessageBubble({
   );
 }
 
-function EmptyState({ hasDocuments }: { hasDocuments: boolean }) {
+function EmptyState({
+  hasDocuments,
+  onOpenSettings,
+  hasKeys,
+}: {
+  hasDocuments: boolean;
+  onOpenSettings: () => void;
+  hasKeys: boolean;
+}) {
   return (
-    <div className="flex flex-col items-center justify-center h-full text-center py-20">
+    <div className="flex flex-col items-center justify-center h-full text-center py-16">
       <div className="p-4 bg-navy-900/30 rounded-2xl border border-navy-800/30 mb-6">
         <Bot className="w-10 h-10 text-navy-400" />
       </div>
       <h2 className="text-xl font-semibold text-white mb-2">DocuMind AI</h2>
+
+      {!hasKeys && (
+        <div className="mb-6 p-4 bg-navy-950/60 border border-navy-800/60 rounded-xl max-w-md text-left">
+          <p className="text-sm text-dark-200 mb-2 font-medium flex items-center gap-2">
+            <Key className="w-4 h-4 text-navy-400" />
+            Enter your API Key to get started
+          </p>
+          <p className="text-xs text-dark-400 mb-3">
+            Add your free Groq API key or OpenRouter key. Keys stay securely in your browser.
+          </p>
+          <button
+            onClick={onOpenSettings}
+            className="btn-primary text-xs px-4 py-2 w-full flex items-center justify-center gap-1.5"
+          >
+            <Key className="w-3.5 h-3.5" />
+            Configure API Key
+          </button>
+        </div>
+      )}
+
       {hasDocuments ? (
         <>
           <p className="text-dark-400 max-w-md mb-6 text-sm leading-relaxed">
@@ -378,7 +520,7 @@ function EmptyState({ hasDocuments }: { hasDocuments: boolean }) {
             ].map((prompt) => (
               <div
                 key={prompt}
-                className="text-left px-3 py-2.5 bg-dark-800/50 border border-dark-700/50 rounded-lg text-xs text-dark-300 cursor-default hover:border-dark-600"
+                className="text-left px-3 py-2.5 bg-dark-800/50 border border-dark-700/50 rounded-lg text-xs text-dark-300 cursor-default hover:border-dark-600 transition-colors"
               >
                 {prompt}
               </div>
@@ -388,11 +530,10 @@ function EmptyState({ hasDocuments }: { hasDocuments: boolean }) {
       ) : (
         <>
           <p className="text-dark-400 max-w-md mb-6 text-sm leading-relaxed">
-            No documents are indexed yet. Switch to the{' '}
-            <strong className="text-dark-200">Documents</strong> tab to upload PDF, TXT, or DOCX files.
+            Switch to the <strong className="text-dark-200">Documents</strong> tab to upload PDF, TXT, or DOCX files.
           </p>
           <p className="text-dark-500 text-xs">
-            Text will be chunked, embedded, and stored in ChromaDB for instant vector search.
+            Documents will be automatically extracted, chunked, and embedded into ChromaDB.
           </p>
         </>
       )}

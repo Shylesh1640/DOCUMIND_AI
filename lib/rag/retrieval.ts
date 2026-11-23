@@ -12,9 +12,10 @@ const TOP_K_RESULTS = 5;
 export async function searchSimilarChunks(
   query: string,
   topK: number = TOP_K_RESULTS,
-  threshold: number = SIMILARITY_THRESHOLD
+  threshold: number = SIMILARITY_THRESHOLD,
+  chromaUrlOverride?: string
 ): Promise<SearchResult[]> {
-  const collection = await getChunksCollection();
+  const collection = await getChunksCollection(chromaUrlOverride);
 
   // Count total documents
   const count = await collection.count();
@@ -41,8 +42,6 @@ export async function searchSimilarChunks(
   const searchResults: SearchResult[] = [];
 
   for (let i = 0; i < ids.length; i++) {
-    // ChromaDB distance is cosine distance (0 = identical)
-    // Convert distance to similarity score
     const distance = distances[i] ?? 1;
     const similarity = Math.max(0, 1 - distance);
 

@@ -1,31 +1,22 @@
-/**
- * ChromaDB client setup for DocuMind AI.
- * Connects to a running ChromaDB server (local or hosted).
- *
- * To start ChromaDB locally:
- *   Docker:  docker run -p 8000:8000 chromadb/chroma
- *   Python:  pip install chromadb && chroma run --path ./chroma_data
- */
 import { ChromaClient, DefaultEmbeddingFunction } from 'chromadb';
 
-const CHROMA_URL = process.env.CHROMA_URL || 'http://localhost:8000';
+const DEFAULT_CHROMA_URL = process.env.CHROMA_URL || 'http://localhost:8000';
 
 export const CHUNKS_COLLECTION =
   process.env.CHROMA_CHUNKS_COLLECTION || 'documind_chunks';
 export const DOCS_COLLECTION =
   process.env.CHROMA_DOCS_COLLECTION || 'documind_docs';
 
-// Singleton ChromaDB client
-let _client: ChromaClient | null = null;
+const clientCache = new Map<string, ChromaClient>();
 
-export function getChromaClient(): ChromaClient {
-  if (!_client) {
-    _client = new ChromaClient({ path: CHROMA_URL });
+export function getChromaClient(urlOverride?: string): ChromaClient {
+  const targetUrl = (urlOverride && urlOverride.trim().length > 0) ? urlOverride.trim() : DEFAULT_CHROMA_URL;
+  if (!clientCache.has(targetUrl)) {
+    clientCache.set(targetUrl, new ChromaClient({ path: targetUrl }));
   }
-  return _client;
+  return clientCache.get(targetUrl)!;
 }
 
-// Shared embedding function (all-MiniLM-L6-v2, 384-dim, runs locally via ONNX)
 let _embeddingFn: DefaultEmbeddingFunction | null = null;
 
 export function getEmbeddingFunction(): DefaultEmbeddingFunction {
@@ -35,11 +26,8 @@ export function getEmbeddingFunction(): DefaultEmbeddingFunction {
   return _embeddingFn;
 }
 
-/**
- * Get or create the chunks collection (with embeddings).
- */
-export async function getChunksCollection() {
-  const client = getChromaClient();
+export async function getChunksCollection(urlOverride?: string) {
+  const client = getChromaClient(urlOverride);
   const ef = getEmbeddingFunction();
   return client.getOrCreateCollection({
     name: CHUNKS_COLLECTION,
@@ -48,11 +36,8 @@ export async function getChunksCollection() {
   });
 }
 
-/**
- * Get or create the documents metadata collection.
- */
-export async function getDocsCollection() {
-  const client = getChromaClient();
+export async function getDocsCollection(urlOverride?: string) {
+  const client = getChromaClient(urlOverride);
   const ef = getEmbeddingFunction();
   return client.getOrCreateCollection({
     name: DOCS_COLLECTION,

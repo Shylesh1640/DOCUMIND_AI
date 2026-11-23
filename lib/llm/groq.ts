@@ -5,11 +5,6 @@
  */
 import Groq from 'groq-sdk';
 
-const apiKey = process.env.GROQ_API_KEY || 'missing';
-const groq = new Groq({
-  apiKey,
-});
-
 const DEFAULT_GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
 
 export interface LLMMessage {
@@ -19,12 +14,16 @@ export interface LLMMessage {
 
 export async function chatWithGroq(
   messages: LLMMessage[],
-  modelOverride?: string
+  modelOverride?: string,
+  apiKeyOverride?: string
 ): Promise<{ content: string; model: string }> {
-  if (!process.env.GROQ_API_KEY) {
-    throw new Error('Missing GROQ_API_KEY environment variable');
+  const key = apiKeyOverride || process.env.GROQ_API_KEY;
+
+  if (!key) {
+    throw new Error('Groq API Key is not set. Please click the ⚙️ Settings / Key icon in the top right to enter your Groq API key.');
   }
 
+  const groq = new Groq({ apiKey: key });
   const model = modelOverride || DEFAULT_GROQ_MODEL;
 
   const completion = await groq.chat.completions.create({
@@ -39,4 +38,4 @@ export async function chatWithGroq(
   return { content, model: completion.model || model };
 }
 
-export { groq, DEFAULT_GROQ_MODEL as GROQ_MODEL };
+export { DEFAULT_GROQ_MODEL as GROQ_MODEL };

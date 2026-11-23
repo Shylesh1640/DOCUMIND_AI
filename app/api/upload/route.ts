@@ -11,10 +11,12 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   let documentId: string | null = null;
+  const chromaUrl = request.headers.get('x-chroma-url') || undefined;
 
   try {
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
+    const formChromaUrl = (formData.get('chromaUrl') as string) || chromaUrl;
 
     if (!file) {
       return NextResponse.json<UploadResponse>({ success: false, error: 'No file provided' }, { status: 400 });
@@ -29,11 +31,11 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(arrayBuffer);
     documentId = uuidv4();
 
-    // Step 1: Register document in docs collection (status = processing)
-    const docsCollection = await getDocsCollection();
+    // Step 1: Register document in docs collection
+    const docsCollection = await getDocsCollection(formChromaUrl);
     await docsCollection.add({
       ids: [documentId],
-      documents: [file.name], // embed the filename
+      documents: [file.name],
       metadatas: [
         {
           filename: file.name,
@@ -68,10 +70,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json<UploadResponse>({ success: false, error: 'Could not process document content' }, { status: 422 });
     }
 
-    // Step 4: Store chunks in ChromaDB (embedding generated automatically)
-    const chunksCollection = await getChunksCollection();
+    // Step 4: Store chunks in ChromaDB
+    const chunksCollection = await getChunksCollection(formChromaUrl);
 
-    // Insert in batches of 50
     const batchSize = 50;
     for (let i = 0; i < chunks.length; i += batchSize) {
       const batch = chunks.slice(i, i + batchSize);
@@ -102,19 +103,12 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Upload API error:', error);
 
-    if (documentId) {
-      try {
-        const docsCollection = await getDocsCollection();
-        await updateDocStatus(docsCollection, documentId, 'error', 'Unexpected processing error');
-      } catch { /* ignore */ }
-    }
-
     if (error instanceof Error) {
       if (error.message.includes('ECONNREFUSED')) {
-        return NextResponse.json<UploadResponse>({ success: false, error: 'ChromaDB not reachable. Is it running at ' + (process.env.CHROMA_URL || 'http://localhost:8000') + '?' }, { status: 503 });
-      }
-      if (error.message.includes('rate_limit')) {
-        return NextResponse.json<UploadResponse>({ success: false, error: 'Rate limit exceeded. Please try again shortly.' }, { status: 429 });
+        return NextResponse.json<UploadResponse>({
+          success: false,
+          error: 'ChromaDB is not reachable. Please configure a valid ChromaDB URL in the Settings modal (⚙️/🔑 icon).'
+        }, { status: 503 });
       }
     }
 

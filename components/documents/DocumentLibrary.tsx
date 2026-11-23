@@ -27,10 +27,26 @@ export function DocumentLibrary({ onDocumentsChange }: DocumentLibraryProps) {
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [fetchError, setFetchError] = useState<string | null>(null);
 
+  const getChromaUrl = () => {
+    try {
+      const saved = localStorage.getItem('documind_api_settings');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return parsed.chromaUrl || undefined;
+      }
+    } catch {
+      // ignore
+    }
+    return undefined;
+  };
+
   const fetchDocuments = useCallback(async () => {
     try {
       setFetchError(null);
-      const res = await fetch('/api/documents');
+      const chromaUrl = getChromaUrl();
+      const res = await fetch('/api/documents', {
+        headers: chromaUrl ? { 'x-chroma-url': chromaUrl } : {},
+      });
       if (!res.ok) throw new Error('Failed to fetch documents');
       const data = await res.json();
       setDocuments(data.documents || []);
@@ -60,8 +76,10 @@ export function DocumentLibrary({ onDocumentsChange }: DocumentLibraryProps) {
       try {
         setUploadingFiles((prev) => new Map(prev).set(uploadId, { name: file.name, progress: 'processing' }));
 
+        const chromaUrl = getChromaUrl();
         const res = await fetch('/api/upload', {
           method: 'POST',
+          headers: chromaUrl ? { 'x-chroma-url': chromaUrl } : {},
           body: formData,
         });
 
@@ -108,7 +126,11 @@ export function DocumentLibrary({ onDocumentsChange }: DocumentLibraryProps) {
     setDeletingIds((prev) => new Set(prev).add(documentId));
 
     try {
-      const res = await fetch(`/api/documents?id=${documentId}`, { method: 'DELETE' });
+      const chromaUrl = getChromaUrl();
+      const res = await fetch(`/api/documents?id=${documentId}`, {
+        method: 'DELETE',
+        headers: chromaUrl ? { 'x-chroma-url': chromaUrl } : {},
+      });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || 'Delete failed');

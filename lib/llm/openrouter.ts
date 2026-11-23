@@ -6,15 +6,6 @@
  */
 import OpenAI from 'openai';
 
-const openrouter = new OpenAI({
-  apiKey: process.env.OPENROUTER_API_KEY || 'missing',
-  baseURL: 'https://openrouter.ai/api/v1',
-  defaultHeaders: {
-    'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
-    'X-Title': 'DocuMind AI',
-  },
-});
-
 const DEFAULT_OPENROUTER_MODEL =
   process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct';
 
@@ -25,11 +16,23 @@ export interface LLMMessage {
 
 export async function chatWithOpenRouter(
   messages: LLMMessage[],
-  modelOverride?: string
+  modelOverride?: string,
+  apiKeyOverride?: string
 ): Promise<{ content: string; model: string }> {
-  if (!process.env.OPENROUTER_API_KEY) {
-    throw new Error('Missing OPENROUTER_API_KEY environment variable');
+  const key = apiKeyOverride || process.env.OPENROUTER_API_KEY;
+
+  if (!key) {
+    throw new Error('OpenRouter API Key is not set. Please click the ⚙️ Settings / Key icon in the top right to enter your OpenRouter API key.');
   }
+
+  const openrouter = new OpenAI({
+    apiKey: key,
+    baseURL: 'https://openrouter.ai/api/v1',
+    defaultHeaders: {
+      'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
+      'X-Title': 'DocuMind AI',
+    },
+  });
 
   const model = modelOverride || DEFAULT_OPENROUTER_MODEL;
 
@@ -44,4 +47,4 @@ export async function chatWithOpenRouter(
   return { content, model: completion.model || model };
 }
 
-export { openrouter, DEFAULT_OPENROUTER_MODEL as OPENROUTER_MODEL };
+export { DEFAULT_OPENROUTER_MODEL as OPENROUTER_MODEL };
