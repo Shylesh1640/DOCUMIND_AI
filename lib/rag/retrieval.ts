@@ -1,13 +1,14 @@
 import { getChunksCollection } from '@/lib/chroma/client';
 import { IncludeEnum } from 'chromadb';
+import { memoryStore } from '@/lib/rag/memory-store';
 import type { SearchResult } from '@/types';
 
-const SIMILARITY_THRESHOLD = 0.3;
+const SIMILARITY_THRESHOLD = 0.2;
 const TOP_K_RESULTS = 5;
 
 /**
- * Search for the most relevant document chunks using ChromaDB vector similarity.
- * Uses the DefaultEmbeddingFunction (all-MiniLM-L6-v2) to embed the query.
+ * Search for the most relevant document chunks using ChromaDB vector similarity,
+ * with automatic fallback to high-performance dense vector search.
  */
 export async function searchSimilarChunks(
   query: string,
@@ -15,52 +16,56 @@ export async function searchSimilarChunks(
   threshold: number = SIMILARITY_THRESHOLD,
   chromaUrlOverride?: string
 ): Promise<SearchResult[]> {
-  const collection = await getChunksCollection(chromaUrlOverride);
+  // 1. Try ChromaDB if URL is provided or default is available
+  try {
+    const collection = await getChunksCollection(chromaUrlOverride);
+    const count = await collection.count();
 
-  // Count total documents
-  const count = await collection.count();
-  if (count === 0) {
-    return [];
+    if (count > 0) {
+      const results = await collection.query({
+        queryTexts: [query],
+        nResults: Math.min(topK, count),
+        include: [IncludeEnum.Documents, IncludeEnum.Metadatas, IncludeEnum.Distances],
+      });
+
+      if (results.ids && results.ids.length > 0 && results.ids[0].length > 0) {
+        const ids = results.ids[0];
+        const documents = results.documents?.[0] || [];
+        const metadatas = results.metadatas?.[0] || [];
+        const distances = results.distances?.[0] || [];
+
+        const searchResults: SearchResult[] = [];
+
+        for (let i = 0; i < ids.length; i++) {
+          const distance = distances[i] ?? 1;
+          const similarity = Math.max(0, 1 - distance);
+
+          if (similarity < threshold) continue;
+
+          const metadata = (metadatas[i] as Record<string, string | number>) || {};
+
+          searchResults.push({
+            chunk_id: ids[i],
+            document_id: String(metadata.document_id || ''),
+            document_name: String(metadata.filename || 'Unknown Document'),
+            content: documents[i] || '',
+            chunk_index: Number(metadata.chunk_index ?? i),
+            similarity,
+          });
+        }
+
+        if (searchResults.length > 0) {
+          return searchResults.sort((a, b) => b.similarity - a.similarity);
+        }
+      }
+    }
+  } catch (chromaErr) {
+    // ChromaDB offline or not configured — fall through to memory vector store
+    console.info('ChromaDB query fallback to embedded vector store:', chromaErr instanceof Error ? chromaErr.message : chromaErr);
   }
 
-  // Query by text — ChromaDB will use the embedding function automatically
-  const results = await collection.query({
-    queryTexts: [query],
-    nResults: Math.min(topK, count),
-    include: [IncludeEnum.Documents, IncludeEnum.Metadatas, IncludeEnum.Distances],
-  });
-
-  if (!results.ids || results.ids.length === 0 || !results.ids[0]) {
-    return [];
-  }
-
-  const ids = results.ids[0];
-  const documents = results.documents?.[0] || [];
-  const metadatas = results.metadatas?.[0] || [];
-  const distances = results.distances?.[0] || [];
-
-  const searchResults: SearchResult[] = [];
-
-  for (let i = 0; i < ids.length; i++) {
-    const distance = distances[i] ?? 1;
-    const similarity = Math.max(0, 1 - distance);
-
-    if (similarity < threshold) continue;
-
-    const metadata = (metadatas[i] as Record<string, string | number>) || {};
-
-    searchResults.push({
-      chunk_id: ids[i],
-      document_id: String(metadata.document_id || ''),
-      document_name: String(metadata.filename || 'Unknown Document'),
-      content: documents[i] || '',
-      chunk_index: Number(metadata.chunk_index ?? i),
-      similarity,
-    });
-  }
-
-  // Sort by similarity descending
-  return searchResults.sort((a, b) => b.similarity - a.similarity);
+  // 2. Fallback to embedded vector store
+  return memoryStore.searchSimilar(query, topK, threshold);
 }
 
 /**
