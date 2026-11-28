@@ -5,7 +5,7 @@
  */
 import Groq from 'groq-sdk';
 
-const DEFAULT_GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+const DEFAULT_GROQ_MODEL = process.env.GROQ_MODEL || 'qwen/qwen3.8-27b';
 
 export interface LLMMessage {
   role: 'system' | 'user' | 'assistant';
