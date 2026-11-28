@@ -25,12 +25,10 @@ declare global {
 }
 
 const docsMap: Map<string, Document> = global.__documind_docs || new Map();
-const chunksMap: Map<string, StoredChunk> = global.__documind_chunks || new Map();
+const chunksMap: Map<string, StoredChunk> = global.__documind_chunks || new Map;
 
-if (process.env.NODE_ENV !== 'production') {
-  global.__documind_docs = docsMap;
-  global.__documind_chunks = chunksMap;
-}
+global.__documind_docs = docsMap;
+global.__documind_chunks = chunksMap;
 
 /**
  * Generate a deterministic dense vector representation for text
